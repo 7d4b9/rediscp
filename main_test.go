@@ -3,7 +3,7 @@ package main_test
 import (
 	"fmt"
 	"github.com/go-redis/redis"
-	. "github.com/jobteaser/redis-copy"
+	. "github.com/jobteaser/rediscp"
 	"sort"
 	"testing"
 )
