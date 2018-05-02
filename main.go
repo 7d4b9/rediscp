@@ -110,15 +110,23 @@ var (
 			srcOps, err := redis.ParseURL(redisSrc)
 			if err != nil {
 				log.Fatal(err)
-				os.Exit(1)
 			}
+
 			destOps, err := redis.ParseURL(redisDest)
 			if err != nil {
 				log.Fatal(err)
-				os.Exit(1)
 			}
+
 			srcClient := redis.NewClient(srcOps)
+			if _, err := srcClient.Ping().Result(); err != nil {
+				log.Fatal(err)
+			}
+
 			destClient := redis.NewClient(destOps)
+			if _, err := destClient.Ping().Result(); err != nil {
+				log.Fatal(err)
+			}
+
 			errs := CopyDB(srcClient, destClient)
 			if errs != nil {
 				log.Fatal(errs)
