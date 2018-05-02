@@ -10,7 +10,7 @@ import (
 
 func seedDB(c *redis.Client) {
 	c.FlushDB()
-	for i := 0; i < 100000; i++ {
+	for i := 0; i < 1000; i++ {
 		c.Set(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i), 0)
 	}
 }
@@ -52,7 +52,7 @@ func TestCopyDB(t *testing.T) {
 		t.FailNow()
 	}
 
-	for i := 0; i < 100000; i++ {
+	for i := 0; i < 1000; i++ {
 		v, err := c2.Get(fmt.Sprintf("k%d", i)).Result()
 		if err != nil {
 			t.Error("error get key")

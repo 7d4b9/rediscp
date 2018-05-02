@@ -1,10 +1,8 @@
 package main
 
 import (
+	"errors"
 	"os"
-	"regexp"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/go-redis/redis"
@@ -16,22 +14,59 @@ import (
 func CopyKey(src *redis.Client, dest *redis.Client, key string, err chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	ttl := src.TTL(key).Val()
-	dump, e := src.Dump(key).Result()
-	if e != nil {
-		log.WithFields(log.Fields{"key": key, "ttl": ttl}).Error("failed to dump the redis key")
-		err <- e
-		return
-	}
-
-	if ttl < 0 {
-		ttl = 0
-	}
-
-	_, e = dest.RestoreReplace(key, ttl, dump).Result()
-	if e != nil {
-		log.WithFields(log.Fields{"key": key, "ttl": ttl}).Error("failed to restore the redis key")
-		err <- e
+	t := src.Type(key).Val()
+	switch t {
+	case "string":
+		ttl := src.TTL(key).Val()
+		v := src.Get(key).Val()
+		if ttl < 0 {
+			ttl = 0
+		}
+		_, e := dest.Set(key, v, ttl).Result()
+		if e != nil {
+			log.WithFields(log.Fields{"key": key, "ttl": ttl, "err": e.Error()}).Error("failed to dump the redis key")
+			err <- e
+		}
+	case "list":
+		v := src.LRange(key, 0, -1).Val()
+		x := make([]interface{}, len(v))
+		for i, v := range v {
+			x[i] = v
+		}
+		_, e := dest.RPush(key, x...).Result()
+		if e != nil {
+			log.WithFields(log.Fields{"key": key, "err": e.Error()}).Error("failed to dump the redis key")
+			err <- e
+		}
+	case "hash":
+		v := src.HGetAll(key).Val()
+		for i, j := range v {
+			_, e := dest.HSet(key, i, j).Result()
+			if e != nil {
+				log.WithFields(log.Fields{"key": key, "err": e.Error()}).Error("failed to dump the redis key")
+				err <- e
+			}
+		}
+	case "set":
+		v := src.SMembers(key).Val()
+		x := make([]interface{}, len(v))
+		for i, v := range v {
+			x[i] = v
+		}
+		_, e := dest.SAdd(key, x...).Result()
+		if e != nil {
+			log.WithFields(log.Fields{"key": key, "err": e.Error()}).Error("failed to dump the redis key")
+			err <- e
+		}
+	case "zset":
+		v := src.ZRangeWithScores(key, 0, -1).Val()
+		_, e := dest.ZAdd(key, v...).Result()
+		if e != nil {
+			log.WithFields(log.Fields{"key": key, "err": e.Error()}).Error("failed to dump the redis key")
+			err <- e
+		}
+	default:
+		err <- errors.New("Unsupported type:" + t)
 	}
 }
 
@@ -58,49 +93,7 @@ func CopyDB(src *redis.Client, dest *redis.Client) []error {
 	return errs
 }
 
-// CheckMemorySpace check if dest redis have require memory space
-func CheckMemorySpace(src *redis.Client, dest *redis.Client) bool {
-	info, err := src.Info("memory").Result()
-	if err != nil {
-		return false
-	}
-	result := make(map[string]string)
-	for _, match := range RedisMemoryMatch.FindAllString(info, -1) {
-		part := strings.Split(match, ":")
-		result[part[0]] = part[1]
-	}
-	info2, err := dest.Info("memory").Result()
-	if err != nil {
-		return false
-	}
-	result2 := make(map[string]string)
-	for _, match := range RedisMemoryMatch.FindAllString(info2, -1) {
-		part := strings.Split(match, ":")
-		result2[part[0]] = part[1]
-	}
-
-	i, err := strconv.Atoi(result2["used_memory"])
-	if err != nil {
-		panic(err)
-	}
-	j, err := strconv.Atoi(result2["total_system_memory"])
-	if err != nil {
-		panic(err)
-	}
-	k, err := strconv.Atoi(result["used_memory"])
-	if err != nil {
-		panic(err)
-	}
-	if (j - i) < k {
-		return false
-	}
-	return true
-}
-
 var (
-	// RedisMemoryMatch represent regex to match redis memory informations
-	RedisMemoryMatch = regexp.MustCompile(`(used_memory:(?P<used>\d+)|total_system_memory:(?P<total>\d+))`)
-
 	rootCmd = &cobra.Command{
 		Use:   "redis-copy",
 		Short: "Dump redis to another redis",
@@ -126,10 +119,6 @@ var (
 			}
 			srcClient := redis.NewClient(srcOps)
 			destClient := redis.NewClient(destOps)
-			if !CheckMemorySpace(srcClient, destClient) {
-				log.Error("the destination redis does not have require memory space")
-				os.Exit(1)
-			}
 			errs := CopyDB(srcClient, destClient)
 			if errs != nil {
 				log.Fatal(errs)
