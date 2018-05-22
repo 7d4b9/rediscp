@@ -31,7 +31,7 @@ $> rediscp --src redis://:6379/3 --dest redis://:6380/7
 Or you can use docker image:
 
 ```sh
-$> docker run jobteaser/rediscp:v1.0.0 /rediscp --src redis://:6379/3 --dest redis://:6380/7
+$> docker run jobteaser/rediscp:v1.0.1 /rediscp --src redis://:6379/3 --dest redis://:6380/7
 ```
 
 ## Contributing
